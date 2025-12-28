@@ -5,6 +5,8 @@ import { createHeaderNav } from './header.mts'
 export default defineConfig({
   title: 'devDesk',
 
+  base: '/devDesk/',
+
   themeConfig: {
     nav: createHeaderNav(),      // ✅ 헤더 메뉴
     sidebar: createTreeSidebar(),// ✅ 사이드바
