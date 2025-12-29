@@ -1,260 +1,252 @@
-데이터 형식
-```js
-const rows = [
+<template>
+  <div class="menu-tree">
+    <!-- 필요 시 root(상위 row)도 접기/펼치기 가능 -->
+    <div v-for="root in roots" :key="root.id" class="root">
+      <div class="root-title">{{ root.label }}</div>
+
+      <!-- 핵심: 트리를 '보이는 목록(visibleNodes)'으로 평탄화해서 v-for 1번으로 렌더 -->
+      <div
+        v-for="n in root.visibleNodes"
+        :key="n.key"
+        class="row"
+        :style="{ paddingLeft: `${n.depth * 16}px` }"
+      >
+        <!-- 그룹(자식 보유)인 경우: 토글 버튼 -->
+        <button
+          v-if="n.hasChildren"
+          type="button"
+          class="toggle"
+          :aria-expanded="isExpanded(n.id)"
+          @click="toggle(n.id)"
+        >
+          {{ isExpanded(n.id) ? "▾" : "▸" }}
+        </button>
+
+        <!-- 리프인 경우: 토글 공간만 확보 -->
+        <span v-else class="toggle-spacer"></span>
+
+        <!-- 라벨 클릭 동작 -->
+        <span
+          class="label"
+          :class="{ group: n.hasChildren, leaf: !n.hasChildren }"
+          @click="n.hasChildren ? toggle(n.id) : onSelect(n)"
+          role="button"
+          tabindex="0"
+          @keydown.enter.prevent="n.hasChildren ? toggle(n.id) : onSelect(n)"
+          @keydown.space.prevent="n.hasChildren ? toggle(n.id) : onSelect(n)"
+        >
+          {{ n.label }}
+        </span>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, ref } from "vue";
+
+/**
+ * ===== 1) 입력 데이터(예시) =====
+ * 실제로는 props 또는 API/스토어에서 받아오면 됩니다.
+ */
+const rows = ref([
   {
     id: "menu-1",
     label: "업무",
     list: [
-      { id: "g1", label: "조회", groupName: "조회" },          // 부모
-      { id: "m1", label: "거래내역", group: "조회", path: "/a" }, // 자식(조회 밑)
+      { id: "g1", label: "조회", groupName: "조회" },
+      { id: "m1", label: "거래내역", group: "조회", path: "/a" },
       { id: "m2", label: "계좌조회", group: "조회", path: "/b" },
 
-      { id: "g2", label: "관리", groupName: "관리" },          // 부모
+      { id: "g2", label: "관리", groupName: "관리" },
       { id: "m3", label: "사용자", group: "관리", path: "/c" },
 
-      { id: "m4", label: "즐겨찾기", path: "/fav" }           // 그룹 없는 단독 노드
+      { id: "m4", label: "즐겨찾기", path: "/fav" },
     ],
   },
-];
-```
+]);
 
-변환 함수
-```js
 /**
- * rows: [{ id, label, list: [...] }]
- * - list 원소 중 groupName이 있으면 "부모 그룹"
- * - group이 있으면 group === groupName 인 부모 그룹의 children으로 편입
+ * ===== 2) 접기/펼치기 상태 =====
+ * Set으로 확장된 노드 id를 관리합니다.
  */
-export function buildMenuTree(rows) {
-  return rows.map((row) => {
-    const groupMap = new Map(); // key: groupName, value: groupNode
-    const standalone = [];      // group/groupName 없는 항목들(루트 직속)
+const expanded = ref(new Set());
 
-    // 1) 부모 그룹 노드 먼저 구성
-    for (const item of row.list || []) {
-      if (item.groupName) {
-        const key = String(item.groupName);
+const isExpanded = (id) => expanded.value.has(id);
 
-        // 부모 그룹 노드는 children을 가진 노드로 표준화
+const toggle = (id) => {
+  const next = new Set(expanded.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expanded.value = next;
+};
+
+/**
+ * ===== 3) rows(list)를 트리로 변환 =====
+ * 규칙:
+ * - groupName: 부모 그룹 노드
+ * - group: groupName과 매칭되는 부모 밑으로 편입
+ * - 둘 다 없으면 단독 리프(루트 직속)
+ */
+function buildTreeFromList(list = []) {
+  const groupMap = new Map(); // key=groupName, value=groupNode
+  const standalone = []; // group/groupName 없는 항목
+
+  // 3-1) 부모 그룹 생성
+  for (const it of list) {
+    if (!it?.groupName) continue;
+    const key = String(it.groupName);
+
+    groupMap.set(key, {
+      id: it.id ?? `group:${key}`,
+      label: it.label ?? key,
+      type: "group",
+      groupName: key,
+      children: [],
+      raw: it,
+    });
+  }
+
+  // 3-2) 자식/단독 처리
+  for (const it of list) {
+    if (!it) continue;
+    if (it.groupName) continue; // 부모 정의 항목은 skip
+
+    if (it.group) {
+      const key = String(it.group);
+
+      // 부모가 없으면 암묵 생성
+      if (!groupMap.has(key)) {
         groupMap.set(key, {
-          id: item.id ?? `group:${key}`,     // id 없으면 생성
-          label: item.label ?? key,          // label 없으면 groupName 사용
+          id: `group:${key}`,
+          label: key,
           type: "group",
           groupName: key,
           children: [],
-          raw: item,                          // 원본 필요하면 보관
+          raw: null,
         });
       }
+
+      groupMap.get(key).children.push({
+        id: it.id,
+        label: it.label,
+        type: "item",
+        ...it,
+      });
+    } else {
+      standalone.push({
+        id: it.id,
+        label: it.label,
+        type: "item",
+        ...it,
+      });
     }
+  }
 
-    // 2) 자식/단독 항목 처리
-    for (const item of row.list || []) {
-      // 부모 그룹 정의 아이템은 이미 처리했으므로 skip
-      if (item.groupName) continue;
+  return {
+    groups: Array.from(groupMap.values()),
+    standalone,
+  };
+}
 
-      // group이 있으면 해당 부모 그룹 아래로 편입
-      if (item.group) {
-        const key = String(item.group);
+/**
+ * ===== 4) 트리를 "보이는 노드 목록"으로 평탄화 =====
+ * - 렌더는 v-for 한 번
+ * - expanded 상태에 따라 children을 포함/제외
+ */
+function flattenVisible(nodes, depth = 0, out = []) {
+  for (const node of nodes) {
+    const hasChildren = Array.isArray(node.children) && node.children.length > 0;
 
-        // 부모가 list에 없을 수도 있으니 “암묵 부모”를 만들어서라도 붙입니다.
-        if (!groupMap.has(key)) {
-          groupMap.set(key, {
-            id: `group:${key}`,
-            label: key,
-            type: "group",
-            groupName: key,
-            children: [],
-            raw: null,
-          });
-        }
+    out.push({
+      key: `${node.id}:${depth}`, // depth 포함(같은 id가 있을 가능성 방지용)
+      id: node.id,
+      label: node.label,
+      depth,
+      hasChildren,
+      raw: node,
+      // leaf 선택에 필요한 값은 raw에 있으니 raw로 접근 가능
+      path: node.path,
+      type: node.type,
+    });
 
-        groupMap.get(key).children.push({
-          id: item.id,
-          label: item.label,
-          type: "item",
-          ...item,
-        });
-      } else {
-        // group도 groupName도 없으면 루트 직속 단독 노드
-        standalone.push({
-          id: item.id,
-          label: item.label,
-          type: "item",
-          ...item,
-        });
-      }
+    if (hasChildren && isExpanded(node.id)) {
+      flattenVisible(node.children, depth + 1, out);
     }
+  }
+  return out;
+}
 
-    // 3) 최종 children 구성: [그룹들..., 단독들...]
-    // 필요하면 정렬(예: 원래 순서 유지) 로직을 추가하세요.
-    const groups = Array.from(groupMap.values());
+/**
+ * ===== 5) 최종 화면 모델 =====
+ * root(row)마다 children 트리 + visibleNodes(flat)를 함께 만들어 둡니다.
+ */
+const roots = computed(() => {
+  return (rows.value || []).map((row) => {
+    const { groups, standalone } = buildTreeFromList(row.list || []);
+
+    // 루트 직속 children = [그룹..., 단독...]
+    const children = [...groups, ...standalone];
+
+    // visibleNodes는 expanded 상태에 따라 매번 재계산
+    const visibleNodes = flattenVisible(children, 0, []);
 
     return {
       id: row.id,
       label: row.label,
-      type: "root",
-      children: [...groups, ...standalone],
+      children,
+      visibleNodes,
       raw: row,
     };
   });
-}
-
-```
-
-상태 모델
-```js
-import { ref } from "vue";
-
-export function useTreeExpand() {
-  const expanded = ref(new Set()); // Set<nodeId>
-
-  const isExpanded = (id) => expanded.value.has(id);
-
-  const toggle = (id) => {
-    const next = new Set(expanded.value); // Vue 반응성 안전하게 새 Set
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    expanded.value = next;
-  };
-
-  const expandAll = (nodes) => {
-    const next = new Set();
-    const walk = (n) => {
-      if (!n) return;
-      if (Array.isArray(n.children) && n.children.length) {
-        next.add(n.id);
-        n.children.forEach(walk);
-      }
-    };
-    nodes.forEach(walk);
-    expanded.value = next;
-  };
-
-  const collapseAll = () => {
-    expanded.value = new Set();
-  };
-
-  return { expanded, isExpanded, toggle, expandAll, collapseAll };
-}
-
-```
-
-재귀 랜더링
-```js
-<template>
-  <div class="tree-node">
-    <!-- 그룹 노드 -->
-    <div
-      v-if="node.type === 'group' || (node.children && node.children.length)"
-      class="row clickable"
-      role="button"
-      tabindex="0"
-      :aria-expanded="isExpanded(node.id)"
-      @click="toggle(node.id)"
-      @keydown.enter.prevent="toggle(node.id)"
-      @keydown.space.prevent="toggle(node.id)"
-    >
-      <span class="chev">{{ isExpanded(node.id) ? "▾" : "▸" }}</span>
-      <span class="label">{{ node.label }}</span>
-    </div>
-
-    <!-- 일반 노드 -->
-    <div
-      v-else
-      class="row leaf"
-      @click="$emit('select', node)"
-    >
-      <span class="chev"></span>
-      <span class="label">{{ node.label }}</span>
-    </div>
-
-    <!-- 자식 영역 (펼침 상태일 때만 렌더) -->
-    <div v-if="node.children && node.children.length && isExpanded(node.id)" class="children">
-      <TreeNode
-        v-for="child in node.children"
-        :key="child.id"
-        :node="child"
-        :isExpanded="isExpanded"
-        :toggle="toggle"
-        @select="$emit('select', $event)"
-      />
-    </div>
-  </div>
-</template>
-
-<script setup>
-/**
- * node: { id, label, type, children? }
- * isExpanded: (id) => boolean
- * toggle: (id) => void
- */
-defineProps({
-  node: { type: Object, required: true },
-  isExpanded: { type: Function, required: true },
-  toggle: { type: Function, required: true },
 });
 
-defineEmits(["select"]);
+/**
+ * ===== 6) 리프 클릭 동작 =====
+ * 라우팅/선택 결과 처리
+ */
+function onSelect(node) {
+  // node.raw 에 원본 속성이 있습니다.
+  // 예: router.push(node.raw.path)
+  console.log("selected leaf:", node);
+}
 </script>
 
 <style scoped>
-.tree-node { font-size: 14px; }
-.row { display: flex; align-items: center; padding: 6px 8px; }
-.clickable { cursor: pointer; user-select: none; }
-.leaf { cursor: pointer; }
-.children { margin-left: 18px; border-left: 1px solid #ddd; padding-left: 10px; }
-.chev { width: 16px; display: inline-block; }
-.label { line-height: 1.2; }
+.menu-tree {
+  font-size: 14px;
+}
+.root {
+  margin-bottom: 12px;
+}
+.root-title {
+  font-weight: 700;
+  padding: 8px 6px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  padding: 6px 6px;
+  gap: 6px;
+}
+.toggle {
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
+  cursor: pointer;
+}
+.toggle-spacer {
+  display: inline-block;
+  width: 26px;
+}
+.label {
+  cursor: pointer;
+  user-select: none;
+}
+.label.group {
+  font-weight: 600;
+}
+.label.leaf {
+  font-weight: 400;
+}
 </style>
-
-```
-
-부모 컴포넌트
-```js
-<template>
-  <div>
-    <div class="toolbar">
-      <button @click="expandAll(tree)">전체 펼치기</button>
-      <button @click="collapseAll()">전체 접기</button>
-    </div>
-
-    <div v-for="root in tree" :key="root.id" class="root">
-      <div class="root-title">{{ root.label }}</div>
-
-      <TreeNode
-        v-for="child in root.children"
-        :key="child.id"
-        :node="child"
-        :isExpanded="isExpanded"
-        :toggle="toggle"
-        @select="onSelect"
-      />
-    </div>
-  </div>
-</template>
-
-<script setup>
-import { computed } from "vue";
-import TreeNode from "./TreeNode.vue";
-import { buildMenuTree } from "./buildMenuTree";
-import { useTreeExpand } from "./useTreeExpand";
-
-const rows = /* 원본 데이터 */;
-const tree = computed(() => buildMenuTree(rows));
-
-const { isExpanded, toggle, expandAll, collapseAll } = useTreeExpand();
-
-const onSelect = (node) => {
-  // leaf 클릭 시 라우팅/액션 처리
-  // 예: if (node.path) router.push(node.path)
-  console.log("selected:", node);
-};
-</script>
-
-<style scoped>
-.root { margin-bottom: 12px; }
-.root-title { font-weight: 700; padding: 8px; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
-</style>
-
-```
