@@ -42,6 +42,7 @@
   </div>
 </template>
 
+```js
 <script setup>
 import { computed, ref } from "vue";
 
@@ -250,3 +251,5 @@ function onSelect(node) {
   font-weight: 400;
 }
 </style>
+
+```
