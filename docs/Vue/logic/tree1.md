@@ -1,47 +1,3 @@
-<template>
-  <div class="menu-tree">
-    <!-- 필요 시 root(상위 row)도 접기/펼치기 가능 -->
-    <div v-for="root in roots" :key="root.id" class="root">
-      <div class="root-title">{{ root.label }}</div>
-
-      <!-- 핵심: 트리를 '보이는 목록(visibleNodes)'으로 평탄화해서 v-for 1번으로 렌더 -->
-      <div
-        v-for="n in root.visibleNodes"
-        :key="n.key"
-        class="row"
-        :style="{ paddingLeft: `${n.depth * 16}px` }"
-      >
-        <!-- 그룹(자식 보유)인 경우: 토글 버튼 -->
-        <button
-          v-if="n.hasChildren"
-          type="button"
-          class="toggle"
-          :aria-expanded="isExpanded(n.id)"
-          @click="toggle(n.id)"
-        >
-          {{ isExpanded(n.id) ? "▾" : "▸" }}
-        </button>
-
-        <!-- 리프인 경우: 토글 공간만 확보 -->
-        <span v-else class="toggle-spacer"></span>
-
-        <!-- 라벨 클릭 동작 -->
-        <span
-          class="label"
-          :class="{ group: n.hasChildren, leaf: !n.hasChildren }"
-          @click="n.hasChildren ? toggle(n.id) : onSelect(n)"
-          role="button"
-          tabindex="0"
-          @keydown.enter.prevent="n.hasChildren ? toggle(n.id) : onSelect(n)"
-          @keydown.space.prevent="n.hasChildren ? toggle(n.id) : onSelect(n)"
-        >
-          {{ n.label }}
-        </span>
-      </div>
-    </div>
-  </div>
-</template>
-
 ```js
 <script setup>
 import { computed, ref } from "vue";
@@ -56,7 +12,7 @@ const rows = ref([
     label: "업무",
     list: [
       { id: "g1", label: "조회", groupName: "조회" },
-      { id: "m1", label: "거래내역", group: "조회", path: "/a" },
+      { id: "m1", label: "거래내역", group: "조회", path: "/a" },~~~~
       { id: "m2", label: "계좌조회", group: "조회", path: "/b" },
 
       { id: "g2", label: "관리", groupName: "관리" },
