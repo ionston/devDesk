@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { DefaultTheme } from 'vitepress'
 
 const DOCS_ROOT = path.resolve(process.cwd(), 'docs')
-const EXCLUDE = ['.vitepress']
+const EXCLUDE = ['.vitepress', '.obsidian']
 
 export function createTreeSidebar(): DefaultTheme.Sidebar {
   return {

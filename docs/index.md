@@ -1,6 +1,6 @@
-```
-sidebarTitle : 시작하기
-```
+---
+sidebarTitle: 시작하기
+---
 
 # devDesk
 

@@ -1,6 +1,6 @@
-```
-sidebarTitle : Vue
-```
+---
+sidebarTitle: Vue
+---
 
 # Vue
 

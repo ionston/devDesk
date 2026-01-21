@@ -1,2 +1,4 @@
 node_modules/
-docs/.obsidian
+docs/.obsidian/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
