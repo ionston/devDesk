@@ -1,8 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DefaultTheme } from 'vitepress'
+import { fileURLToPath } from 'node:url'
 
-const DOCS_ROOT = path.resolve(process.cwd(), 'docs')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const DOCS_ROOT = path.resolve(__dirname, '..')
 const EXCLUDE = ['.vitepress', '.obsidian']
 
 export function createTreeSidebar(): DefaultTheme.Sidebar {
