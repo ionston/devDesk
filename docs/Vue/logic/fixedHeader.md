@@ -1,151 +1,59 @@
-# fixed header
+ =====================================================================
+ [JS 전체 예제 + 상세 주석 버전 - 한 번에 복사/붙여넣기용]
+ 
+ 목적
+ - 라이브러리 레이아웃(LayoutContainer)이 헤더 높이를 실시간 측정하고(ResizeObserver)
+ - Body(스크롤 컨테이너) 내에서 탭/필터/버튼바 등 “붙어야 하는 컴포넌트”들이
+   헤더 바로 아래부터 order 순서대로 차례대로 sticky(top) 되도록 top 값을 계산해 제공
+ 
+ 핵심 포인트
+ - 사용 화면에서는 orderMap을 한 번에 등록: useLayoutStickies({ tabs:10, ... })
+ - id 충돌 방지를 위해 scope를 아예 없앰: 각 sticky 항목 id는 Symbol()로 자동 생성 → 충돌 불가
+ - 퍼블리셔/사용 화면은 실제 sticky 처리(CSS position: sticky)는 유지하고
+   라이브러리는 top/zIndex 계산 정보를 제공하는 역할(책임 분리)
+ 
+ 경로대로 파일을 생성해 그대로 붙여넣으세요.
+ =====================================================================
 
-아래는 요청하신 전제(“**사용 프로젝트는 JS로 테스트**, 라이브러리는 **TS로 작성·빌드**해서 실제로 설치/사용”)를 그대로 반영한 **권장 구조 + 최소 구현 세트**입니다.
-
-핵심 목표는 이것입니다.
-
-- 라이브러리의 Layout(Container)이 **헤더 높이를 측정**하고 provide
-    
-- 사용 프로젝트의 “화면 컴포넌트(Body 안)”에서 `useLayoutSticky({ order })`만 호출하면
-    
-    - 탭/버튼 등 요소들이 **헤더 밑에 차례대로 sticky** 되도록
-        
-    - `top` 정보를 받는다
-        
-- 사용 프로젝트는 TS가 아니어도 된다(JS에서 그대로 사용)
-    
-
----
-
-# 1) 최종 사용 모습(사용 프로젝트: JS)
-
-화면 컴포넌트에서 이렇게만 쓰는 게 목표입니다.
-
+ ---------------------------------------------------------------------
+ 파일: src/layout/keys.js
+ 역할
+ - provide/inject에 사용할 Injection Key를 한 곳에 모아 관리
+ - 키를 Symbol로 두면 키 충돌이 사실상 발생하지 않습니다.
+ ---------------------------------------------------------------------
 ```js
-<script setup>
-import { useLayoutSticky } from "@your-scope/layout-kit";
-
-const tabs = useLayoutSticky({ order: 10 });
-const actions = useLayoutSticky({ order: 20 });
-</script>
-
-<template>
-  <div
-    ref="tabs.stickyRef"
-    :style="{ position: 'sticky', top: tabs.top + 'px', zIndex: tabs.zIndex }"
-  >
-    Tabs
-  </div>
-
-  <div
-    ref="actions.stickyRef"
-    :style="{ position: 'sticky', top: actions.top + 'px', zIndex: actions.zIndex }"
-  >
-    Actions
-  </div>
-
-  <div style="padding:16px">
-    <!-- 긴 컨텐츠 -->
-  </div>
-</template>
-
-```
-- 등록 순서 무관
-    
-- `order`만 주면 “차례대로” top이 쌓임
-    
-- 높이는 자동 측정(ResizeObserver)
-    
-- 헤더 높이가 변하면(배너 등) top 자동 갱신
-    
-
----
-
-# 2) 라이브러리(TS) 프로젝트 구조
-
-예시 패키지명: `@your-scope/layout-kit`
-
-```shell
-packages/layout-kit/
-  src/
-    index.ts
-    keys.ts
-    types.ts
-    composables/
-      createStickyManager.ts
-      useHeaderMeasure.ts
-      useLayoutSticky.ts
-    components/
-      LayoutContainer.vue
-  package.json
-  tsconfig.json
-  vite.config.ts
-
+export const StickyManagerKey = Symbol("StickyManagerKey");
 ```
 
----
+ ---------------------------------------------------------------------
+ 파일: src/layout/useHeaderMeasure.js
+ 역할
+ - LayoutContainer의 header DOM 요소를 대상으로
+   "현재 헤더 높이"를 실시간(ref)으로 유지하는 컴포저블
+ - 헤더 높이 변화는 다음 경우에 발생할 수 있음:
+   - 배너/공지 영역이 나타남/사라짐
+   - 글자 크기/반응형 레이아웃 변화
+   - 동적 슬롯 내용 변경 등
+ 
+ 구현 포인트
+ - ResizeObserver를 사용해 "높이가 변할 때만" 재측정 → 성능 안정
+ - watch(headerElRef)로 ref 대상 DOM이 늦게 바인딩 되는 케이스도 커버
+ ---------------------------------------------------------------------
+```js
+import { ref, onMounted, onUnmounted, watch } from "vue";
 
-# 3) 라이브러리 핵심 구현(TS)
-
-## 3-1) keys.ts
-
-```ts
-// packages/layout-kit/src/keys.ts
-import type { InjectionKey, Ref } from "vue";
-import type { StickyManager } from "./types";
-
-export const HeaderHeightKey: InjectionKey<Ref<number>> = Symbol("HeaderHeightKey");
-export const StickyManagerKey: InjectionKey<StickyManager> = Symbol("StickyManagerKey");
-
-```
-
-## 3-2) types.ts
-
-```ts
-// packages/layout-kit/src/types.ts
-import type { ComputedRef } from "vue";
-
-export type StickyId = string;
-
-export interface StickyRegisterOptions {
-  id: StickyId;
-  order: number;       // 작을수록 위(헤더 바로 아래)
-  enabled?: boolean;   // 기본 true
-}
-
-export interface StickyItemState {
-  id: StickyId;
-  order: number;
-  enabled: boolean;
-  height: number;
-  mountedAt: number;   // tie-breaker(안정 정렬)
-}
-
-export interface StickyManager {
-  register(opts: StickyRegisterOptions): () => void;
-  unregister(id: StickyId): void;
-  updateHeight(id: StickyId, height: number): void;
-  setEnabled(id: StickyId, enabled: boolean): void;
-
-  getTop(id: StickyId): ComputedRef<number>;
-  getZIndex(id: StickyId): ComputedRef<number>;
-
-  // 디버깅/확장용
-  stackHeight: ComputedRef<number>;
-}
-
-```
-
-## 3-3) useHeaderMeasure.ts (헤더 높이 측정)
-
-```ts
-// packages/layout-kit/src/composables/useHeaderMeasure.ts
-import { ref, onMounted, onUnmounted, watch, type Ref } from "vue";
-
-export function useHeaderMeasure(headerElRef: Ref<HTMLElement | null>) {
+export function useHeaderMeasure(headerElRef) {
+  // [반환] 현재 헤더 높이(px)
   const height = ref(0);
-  let ro: ResizeObserver | null = null;
 
+  // ResizeObserver 인스턴스 보관
+  let ro = null;
+
+  /**
+   * measureOnce()
+   * - headerElRef가 가리키는 DOM의 현재 높이를 측정하여 height에 반영
+   * - getBoundingClientRect().height를 사용해 실제 렌더링 높이를 얻음
+   */
   const measureOnce = () => {
     const el = headerElRef.value;
     if (!el) return;
@@ -153,12 +61,22 @@ export function useHeaderMeasure(headerElRef: Ref<HTMLElement | null>) {
   };
 
   onMounted(() => {
+    // 최초 1회 측정
     measureOnce();
+
+    // 높이 변경 이벤트에만 반응
     ro = new ResizeObserver(() => measureOnce());
 
+    // 현재 DOM이 이미 존재한다면 관찰 시작
     if (headerElRef.value) ro.observe(headerElRef.value);
   });
 
+  /**
+   * headerElRef.value가 나중에 바뀌는 경우(동적 렌더링/컴포넌트 교체 등)
+   * - 이전 요소 unobserve
+   * - 신규 요소 observe
+   * - 이후 재측정
+   */
   watch(
     () => headerElRef.value,
     (el, prev) => {
@@ -170,29 +88,57 @@ export function useHeaderMeasure(headerElRef: Ref<HTMLElement | null>) {
   );
 
   onUnmounted(() => {
+    // 관찰 해제 및 리소스 정리
     ro?.disconnect();
     ro = null;
   });
 
   return { height };
 }
-
 ```
 
-## 3-4) createStickyManager.ts (order 기반 top 계산)
+ ---------------------------------------------------------------------
+ 파일: src/layout/createStickyManager.js
+ 역할
+ - 헤더 높이(ref)를 기반으로
+   Body 내부의 "sticky 대상"들을 order 기준으로 정렬하고
+   각 sticky의 top 값을 "헤더 아래부터 누적" 계산해 제공하는 매니저
+ 
+ 왜 매니저가 필요한가?
+ - sticky가 여러 개면 각각의 top이 서로 영향을 주기 때문에
+   "한 곳에서" 누적 높이를 계산하는 단일 진실의 원천(Single Source of Truth)이 필요합니다.
+ 
+ 매니저가 관리하는 데이터(항목별)
+ - id: symbol (충돌 방지)
+ - name: 디버깅용 라벨(예: tabs, filter)
+ - order: 우선순위(작을수록 위)
+ - enabled: 스택 포함 여부(기본 true)
+ - height: 항목의 실측 높이(px) → useLayoutSticky에서 ResizeObserver로 자동 업데이트
+ - mountedAt: order가 같은 경우를 위한 안정 정렬 tie-breaker
+ 
+ 계산 규칙
+ - active( enabled=true ) 항목을 order 오름차순으로 정렬
+ - top(item1) = headerHeight
+ - top(item2) = headerHeight + height(item1)
+ - top(item3) = headerHeight + height(item1) + height(item2)
+ ...
+ ---------------------------------------------------------------------
+```js
+import { reactive, computed } from "vue";
 
-```ts
-// packages/layout-kit/src/composables/createStickyManager.ts
-import { computed, reactive, type Ref } from "vue";
-import type { StickyItemState, StickyManager, StickyRegisterOptions } from "../types";
-
-function clamp0(n: number) {
+function clamp0(n) {
   return n < 0 ? 0 : n;
 }
 
-export function createStickyManager(headerHeightRef: Ref<number>): StickyManager {
-  const itemsById = reactive(new Map<string, StickyItemState>());
+export function createStickyManager(headerHeightRef) {
+  // reactive Map: key=symbol, value=state object
+  const itemsById = reactive(new Map());
 
+  /**
+   * sortedActive
+   * - enabled=true 인 항목만 추려서
+   * - order, mountedAt 기준으로 안정 정렬된 배열을 제공
+   */
   const sortedActive = computed(() => {
     const arr = Array.from(itemsById.values()).filter((x) => x.enabled);
 
@@ -205,8 +151,13 @@ export function createStickyManager(headerHeightRef: Ref<number>): StickyManager
     return arr;
   });
 
+  /**
+   * tops
+   * - 각 id별 top(px) 값을 계산해서 Map으로 제공
+   * - top은 headerHeight부터 시작하여 "위의 sticky 높이"를 누적한 값
+   */
   const tops = computed(() => {
-    const map = new Map<string, number>();
+    const map = new Map(); // key: symbol -> number(top)
     let acc = clamp0(headerHeightRef.value || 0);
 
     for (const item of sortedActive.value) {
@@ -216,15 +167,17 @@ export function createStickyManager(headerHeightRef: Ref<number>): StickyManager
     return map;
   });
 
-  const stackHeight = computed(() => {
-    return sortedActive.value.reduce((sum, x) => sum + clamp0(x.height || 0), 0);
-  });
 
-  function register(opts: StickyRegisterOptions) {
-    const { id, order } = opts;
-    const enabled = opts.enabled ?? true;
-
-    if (!id) throw new Error("Sticky register: id is required");
+  /**
+   * register()
+   * - sticky 항목을 매니저에 등록
+   * - 반환값: unregister 함수(해제용)
+   *
+   * 주의
+   * - id는 symbol이어야 하며, useLayoutSticky가 자동 생성함
+   * - order는 필수
+   */
+  function register({ id, name = "", order, enabled = true }) {
     if (typeof order !== "number") throw new Error("Sticky register: order is required");
 
     const now = Date.now();
@@ -232,6 +185,7 @@ export function createStickyManager(headerHeightRef: Ref<number>): StickyManager
 
     itemsById.set(id, {
       id,
+      name,
       order,
       enabled,
       height: prev?.height ?? 0,
@@ -241,97 +195,120 @@ export function createStickyManager(headerHeightRef: Ref<number>): StickyManager
     return () => unregister(id);
   }
 
-  function unregister(id: string) {
+  /**
+   * unregister()
+   * - 항목을 제거(해제)
+   * - 컴포넌트 unmount 시 호출되어 스택이 자동으로 정리됨
+   */
+  function unregister(id) {
     itemsById.delete(id);
   }
 
-  function updateHeight(id: string, height: number) {
+  /**
+   * updateHeight()
+   * - 항목 DOM의 실측 높이를 매니저에 업데이트
+   * - ResizeObserver로 항목 높이가 변할 때마다 호출됨
+   * - 높이가 변하면 computed(tops)가 자동으로 재계산됨
+   */
+  function updateHeight(id, height) {
     const item = itemsById.get(id);
     if (!item) return;
     item.height = clamp0(Math.round(height || 0));
     itemsById.set(id, item);
   }
 
-  function setEnabled(id: string, enabled: boolean) {
-    const item = itemsById.get(id);
-    if (!item) return;
-    item.enabled = !!enabled;
-    itemsById.set(id, item);
-  }
-
-  function getTop(id: string) {
+  /**
+   * getTop()
+   * - 특정 sticky 항목의 최종 top(px) 값을 computed로 제공
+   * - 항목이 아직 계산 Map에 없으면 headerHeight를 fallback으로 제공
+   */
+  function getTop(id) {
     return computed(() => tops.value.get(id) ?? clamp0(headerHeightRef.value || 0));
   }
 
-  function getZIndex(id: string) {
-    // 간단 정책: order가 작을수록 z-index 높게(위에 떠야 하니까)
-    // 필요하면 프로젝트 규칙에 맞게 바꾸세요.
+  /**
+   * getZIndex()
+   * - 간단한 z-index 정책 제공
+   * - order가 작을수록 위에 있어야 하므로 z-index를 더 크게(= 1000 - order)
+   * - 디자인 시스템/퍼블리싱 규칙에 맞게 여기 정책을 교체하면 됨
+   */
+  function getZIndex(id) {
     return computed(() => {
       const item = itemsById.get(id);
       const order = item?.order ?? 9999;
-      return 1000 - order; // order=10 => 990, order=20 => 980 ...
+      return 1000 - order;
     });
   }
 
-  return {
-    register,
-    unregister,
-    updateHeight,
-    setEnabled,
-    getTop,
-    getZIndex,
-    stackHeight,
-  };
+  return { register, unregister, updateHeight, getTop, getZIndex };
 }
-
 ```
 
-## 3-5) useLayoutSticky.ts (컨슈머가 직접 쓰는 “단일” 컴포저블)
+ ---------------------------------------------------------------------
+ 파일: src/layout/useLayoutSticky.js
+ 역할
+ - "sticky로 붙을 컴포넌트 하나"를 등록하고
+ - 그 컴포넌트의 top/zIndex 값을 computed로 제공
+ - sticky 대상 DOM의 높이를 ResizeObserver로 자동 측정하여 매니저에 반영
+ 
+ 사용 화면 관점
+ - const tabs = useLayoutSticky({ order: 10, name: "tabs" })
+ - template: ref="tabs.stickyRef", style.top = tabs.top
+ 
+ 충돌 방지
+ - id를 Symbol(name)으로 생성 → scope 없이도 id 충돌 불가
+ ---------------------------------------------------------------------
+```js
+import { inject, ref, onMounted, onUnmounted, watch, computed } from "vue";
+import { StickyManagerKey } from "./keys";
 
-```ts
-// packages/layout-kit/src/composables/useLayoutSticky.ts
-import { computed, inject, onMounted, onUnmounted, ref, watch } from "vue";
-import { StickyManagerKey } from "../keys";
-import type { StickyId } from "../types";
-
-let __uid = 0;
-function genId(prefix = "sticky") {
-  __uid += 1;
-  return `${prefix}-${Date.now()}-${__uid}`;
-}
-
-export function useLayoutSticky(opts: { order: number; id?: StickyId; enabled?: boolean }) {
+export function useLayoutSticky({ order, name = "", enabled = true } = {}) {
   const manager = inject(StickyManagerKey);
-  if (!manager) {
-    throw new Error("useLayoutSticky(): StickyManager is not provided. Ensure LayoutContainer is used.");
-  }
+  if (!manager) throw new Error("useLayoutSticky(): StickyManager not provided.");
+  if (typeof order !== "number") throw new Error("useLayoutSticky(): order is required");
 
-  const id = opts.id ?? genId();
-  const order = opts.order;
-  const enabled = opts.enabled ?? true;
+  // 고유 id(충돌 불가). name은 디버깅 라벨로만 의미
+  const id = Symbol(name || "sticky");
 
-  const stickyRef = ref<HTMLElement | null>(null);
-  const top = manager.getTop(id);
-  const zIndex = manager.getZIndex(id);
+  // sticky 적용할 DOM을 template ref로 연결받음
+  const stickyRef = ref(null);
 
-  let unregister: (() => void) | null = null;
-  let ro: ResizeObserver | null = null;
+  // 매니저가 계산해주는 top/zIndex computed를 구독
+  const topRef = manager.getTop(id);
+  const zIndexRef = manager.getZIndex(id);
 
+  let unregister = null;
+  let ro = null;
+
+  /**
+   * measureOnce()
+   * - stickyRef가 가리키는 DOM의 현재 높이를 측정하여 매니저에 업데이트
+   * - 이 높이가 "다음 sticky의 top" 계산에 영향을 줌
+   */
   const measureOnce = () => {
     const el = stickyRef.value;
     if (!el) return;
-    const h = el.getBoundingClientRect().height;
-    manager.updateHeight(id, h);
+    manager.updateHeight(id, el.getBoundingClientRect().height);
   };
 
   onMounted(() => {
-    unregister = manager.register({ id, order, enabled });
+    // 매니저에 등록
+    unregister = manager.register({ id, name, order, enabled });
+
+    // 최초 1회 측정
     measureOnce();
 
+    // 높이 변경 시 자동 갱신
     ro = new ResizeObserver(() => measureOnce());
     if (stickyRef.value) ro.observe(stickyRef.value);
   });
 
+  /**
+   * stickyRef DOM이 늦게 설정되거나 바뀌는 경우를 커버
+   * - 이전 요소 unobserve
+   * - 신규 요소 observe
+   * - 즉시 재측정
+   */
   watch(
     () => stickyRef.value,
     (el, prev) => {
@@ -343,275 +320,236 @@ export function useLayoutSticky(opts: { order: number; id?: StickyId; enabled?: 
   );
 
   onUnmounted(() => {
+    // 관찰 해제
     ro?.disconnect();
     ro = null;
+
+    // 등록 해제
     unregister?.();
     unregister = null;
   });
 
-  function setEnabled(next: boolean) {
-    manager.setEnabled(id, !!next);
-  }
-
   return {
-    id,
+    // template에서 ref로 연결할 대상
     stickyRef,
-    top: computed(() => top.value),
-    zIndex: computed(() => zIndex.value),
-    setEnabled,
+
+    // 퍼블리싱/화면에서 top/zIndex 값만 사용하면 됨
+    top: computed(() => topRef.value),
+    zIndex: computed(() => zIndexRef.value),
   };
 }
-
 ```
 
----
+ ---------------------------------------------------------------------
+ 파일: src/layout/useLayoutStickies.js
+ 역할
+ - 사용 화면에서 여러 sticky 항목을 "한 번에" 등록하기 위한 편의 API
+ 
+ 사용법(사용 화면)
+ - const stickies = useLayoutStickies({ tabs:10, filter:20, actions:30 })
+ - stickies.tabs, stickies.filter 처럼 사용
+ 
+ 내부 동작
+ - 각 name에 대해 useLayoutSticky를 호출하고 결과를 객체로 반환
+ ---------------------------------------------------------------------
+```js
+import { useLayoutSticky } from "./useLayoutSticky";
 
-# 4) 라이브러리 LayoutContainer.vue (provide를 여기서 한다)
+export function useLayoutStickies(orderMap) {
+  const result = {};
 
-이 컴포넌트를 사용 프로젝트에서 레이아웃으로 감싸기만 하면, Body 안 모든 화면에서 `useLayoutSticky()` 사용 가능해집니다.
+  // orderMap: { tabs: 10, filter: 20, actions: 30 }
+  for (const [name, order] of Object.entries(orderMap)) {
+    result[name] = useLayoutSticky({ order, name });
+  }
 
-```vue
-<!-- packages/layout-kit/src/components/LayoutContainer.vue -->
+  return result;
+}
+```
+ ---------------------------------------------------------------------
+ 파일: src/layout/LayoutContainer.vue
+ 역할
+ - 라이브러리 레이아웃의 핵심 컨테이너
+ - 구조: Header(고정) + Body(스크롤) 형제 레벨
+ - 헤더 DOM을 측정해 headerHeight를 만들고
+ - StickyManager를 생성해 provide 하여 Body 트리에서 사용 가능하게 함
+ 
+ 구현 포인트
+ - Header는 fixed이므로 Body 상단이 가려지지 않도록 paddingTop=headerHeight 적용
+ - Body가 스크롤 컨테이너라는 전제(지금 요구조건)
+ ---------------------------------------------------------------------
+```js
 <template>
-  <div class="lk-root">
-    <header ref="headerEl" class="lk-header">
+  <div class="root">
+    <!-- 헤더는 고정 영역. 슬롯으로 헤더 UI를 주입받음 -->
+    <header ref="headerEl" class="header">
       <slot name="header" />
     </header>
 
-    <main class="lk-body" :style="{ paddingTop: headerHeight + 'px' }">
+    <!-- Body는 스크롤 컨테이너.
+         paddingTop으로 헤더 높이만큼 내려서 헤더에 가리지 않게 처리 -->
+    <main class="body" :style="{ paddingTop: headerHeight + 'px' }">
       <slot />
     </main>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, provide, computed } from "vue";
-import { HeaderHeightKey, StickyManagerKey } from "../keys";
-import { useHeaderMeasure } from "../composables/useHeaderMeasure";
-import { createStickyManager } from "../composables/createStickyManager";
+<script setup>
+import { ref, computed, provide } from "vue";
+import { StickyManagerKey } from "./keys";
+import { useHeaderMeasure } from "./useHeaderMeasure";
+import { createStickyManager } from "./createStickyManager";
 
-const headerEl = ref<HTMLElement | null>(null);
+// 헤더 DOM ref
+const headerEl = ref(null);
 
+// 헤더 높이 측정(실시간)
 const { height } = useHeaderMeasure(headerEl);
 const headerHeight = computed(() => height.value);
 
-// provide: 헤더 높이(필요하면 컨슈머가 직접 쓸 수도 있음)
-provide(HeaderHeightKey, headerHeight);
-
-// provide: sticky 매니저
+// sticky 매니저 생성 및 provide
 const manager = createStickyManager(headerHeight);
 provide(StickyManagerKey, manager);
 </script>
 
 <style scoped>
-.lk-root {
+.root {
   height: 100vh;
   overflow: hidden;
 }
-
-.lk-header {
+.header {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   z-index: 2000;
-  background: #fff;
-  border-bottom: 1px solid #e5e5e5;
+  background:  fff;
+  border-bottom: 1px solid  e5e5e5;
 }
-
-.lk-body {
+.body {
   height: 100%;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  background: #f7f7f7;
+  background:  f7f7f7;
 }
 </style>
-
 ```
 
----
+ ---------------------------------------------------------------------
+ 파일: src/pages/DemoPage.vue
+ 역할
+ - 실제 사용 화면 예제(Body 슬롯 안에 들어가는 화면)
+ - useLayoutStickies로 tabs/filter/actions를 한 번에 등록
+ - 각 항목은 position: sticky + top(계산값) 적용
+ - 컨텐츠를 길게 만들어 스크롤 테스트 가능하게 함
+ ---------------------------------------------------------------------
 
-# 5) 라이브러리 엔트리 export (index.ts)
+```js
+<template>
+  <!-- Tabs: 헤더 아래 첫 번째로 붙음(order=10) -->
+  <div
+    ref="stickies.tabs.stickyRef"
+    :style="stickyStyle(stickies.tabs)"
+    class="stickyBox"
+  >
+    Tabs (order=10) top={{ stickies.tabs.top }}
+  </div>
 
+  <!-- Filter: Tabs 아래 두 번째로 붙음(order=20) -->
+  <div
+    ref="stickies.filter.stickyRef"
+    :style="stickyStyle(stickies.filter)"
+    class="stickyBox"
+  >
+    Filter (order=20) top={{ stickies.filter.top }}
+  </div>
 
-```ts
-// packages/layout-kit/src/index.ts
-export { default as LayoutContainer } from "./components/LayoutContainer.vue";
-export { useLayoutSticky } from "./composables/useLayoutSticky";
-export { HeaderHeightKey, StickyManagerKey } from "./keys";
-export type { StickyManager } from "./types";
-```
+  <!-- Actions: Filter 아래 세 번째로 붙음(order=30) -->
+  <div
+    ref="stickies.actions.stickyRef"
+    :style="stickyStyle(stickies.actions)"
+    class="stickyBox"
+  >
+    Actions (order=30) top={{ stickies.actions.top }}
+  </div>
 
----
+  <!-- 긴 컨텐츠로 스크롤 유도 -->
+  <div class="content">
+    <div v-for="i in 80" :key="i" class="row">Row {{ i }}</div>
+  </div>
+</template>
 
-# 6) 라이브러리 빌드 설정 (Vite library mode)
+<script setup>
+import { useLayoutStickies } from "../layout/useLayoutStickies";
 
-## vite.config.ts (TS)
-
-```ts
-// packages/layout-kit/vite.config.ts
-import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
-import { resolve } from "path";
-
-export default defineConfig({
-  plugins: [vue()],
-  build: {
-    lib: {
-      entry: resolve(__dirname, "src/index.ts"),
-      name: "LayoutKit",
-      formats: ["es"],
-      fileName: "index",
-    },
-    rollupOptions: {
-      external: ["vue"], // peerDependencies로 처리
-      output: {
-        globals: {
-          vue: "Vue",
-        },
-      },
-    },
-  },
+/**
+ * useLayoutStickies()
+ * - orderMap을 한 번에 전달해서 tabs/filter/actions를 등록
+ * - 반환값 stickies.tabs / stickies.filter / stickies.actions 각각이
+ *   stickyRef, top, zIndex를 제공
+ */
+const stickies = useLayoutStickies({
+  tabs: 10,
+  filter: 20,
+  actions: 30,
 });
 
-```
-
-## package.json (라이브러리)
-
-```json
-{
-  "name": "@your-scope/layout-kit",
-  "version": "0.0.1",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": ["dist"],
-  "peerDependencies": {
-    "vue": "^3.3.0"
-  },
-  "devDependencies": {
-    "vite": "^5.0.0",
-    "@vitejs/plugin-vue": "^5.0.0",
-    "typescript": "^5.0.0",
-    "vue-tsc": "^2.0.0"
-  },
-  "scripts": {
-    "build": "vue-tsc --declaration --emitDeclarationOnly --outDir dist && vite build"
-  }
+/**
+ * stickyStyle()
+ * - 퍼블리셔가 실제 sticky 스타일을 결정하는 영역
+ * - 라이브러리는 top/zIndex 같은 "정보"만 제공하고
+ *   style 적용은 사용 화면에서 수행(책임 분리)
+ */
+function stickyStyle(item) {
+  return {
+    position: "sticky",
+    top: item.top + "px",
+    zIndex: item.zIndex,
+    background: " fff",
+    borderBottom: "1px solid  ddd",
+  };
 }
-
-```
-
-> 타입 선언 파일(`index.d.ts`)은 `vue-tsc`로 `dist`에 내보내고, Vite로 JS 번들을 만듭니다.
-
----
-
-# 7) 사용 프로젝트(JS)에서 테스트하는 방법
-
-## 7-1) 설치(로컬 tgz로 테스트)
-
-라이브러리에서:
-
-```bash
-cd packages/layout-kit
-npm run build
-npm pack
-# => @your-scope-layout-kit-0.0.1.tgz 생성
-
-```
-
-사용 프로젝트에서:
-
-```bash
-npm i ../packages/layout-kit/@your-scope-layout-kit-0.0.1.tgz
-# 또는 pnpm add file:...
-
-```
-
-## 7-2) 사용 프로젝트 화면(JS) 예제
-
-### App.vue 또는 라우트 레이아웃
-
-```vue
-<script setup>
-import { LayoutContainer } from "@your-scope/layout-kit";
-import DemoPage from "./pages/DemoPage.vue";
 </script>
 
+<style scoped>
+.stickyBox {
+  padding: 12px 16px;
+}
+.content {
+  padding: 16px;
+}
+.row {
+  background:  fff;
+  border: 1px solid  eee;
+  margin-bottom: 8px;
+  padding: 12px;
+}
+</style>
+```
+
+ ---------------------------------------------------------------------
+ 파일: src/App.vue
+ 역할
+ - LayoutContainer로 앱(또는 라우트)을 감싸서
+   Body 내부 어디서든 sticky 기능을 쓸 수 있도록 컨텍스트를 제공
+ ---------------------------------------------------------------------
+
+```js
 <template>
   <LayoutContainer>
-    <template #header>
+    <template  header>
       <div style="padding:16px">
         <div style="font-weight:700">Fixed Header</div>
-        <div style="font-size:12px;opacity:.7">헤더 높이 변해도 sticky top 자동 갱신</div>
+        <div style="font-size:12px;opacity:.7">
+          헤더 높이 변경 시 sticky top 자동 갱신
+        </div>
       </div>
     </template>
 
     <DemoPage />
-  </LayoutContainer>
+  </LayoutContainer>s
 </template>
 
-```
-
-### DemoPage.vue (JS)
-
-```vue
 <script setup>
-import { useLayoutSticky } from "@your-scope/layout-kit";
-
-const tabs = useLayoutSticky({ order: 10 });
-const filter = useLayoutSticky({ order: 20 });
-const actions = useLayoutSticky({ order: 30 });
+import LayoutContainer from "./layout/LayoutContainer.vue";
+import DemoPage from "./pages/DemoPage.vue";
 </script>
-
-<template>
-  <div
-    ref="tabs.stickyRef"
-    :style="{ position: 'sticky', top: tabs.top + 'px', zIndex: tabs.zIndex, background:'#fff', borderBottom:'1px solid #ddd' }"
-  >
-    <div style="padding:12px 16px">Tabs (order=10) top={{ tabs.top }}</div>
-  </div>
-
-  <div
-    ref="filter.stickyRef"
-    :style="{ position: 'sticky', top: filter.top + 'px', zIndex: filter.zIndex, background:'#fff', borderBottom:'1px solid #ddd' }"
-  >
-    <div style="padding:12px 16px">Filter (order=20) top={{ filter.top }}</div>
-  </div>
-
-  <div
-    ref="actions.stickyRef"
-    :style="{ position: 'sticky', top: actions.top + 'px', zIndex: actions.zIndex, background:'#fff', borderBottom:'1px solid #ddd' }"
-  >
-    <div style="padding:12px 16px">Actions (order=30) top={{ actions.top }}</div>
-  </div>
-
-  <div style="padding:16px">
-    <div v-for="i in 80" :key="i" style="background:#fff;border:1px solid #eee;margin-bottom:8px;padding:12px">
-      Row {{ i }}
-    </div>
-  </div>
-</template>
-
 ```
-
----
-
-# 8) 중요한 운영 포인트(지금 단계에서 딱 2개만)
-
-1. **헤더가 fixed이면 Body에 paddingTop을 headerHeight만큼 주는 것**이 필수입니다.  
-    그래야 컨텐츠가 헤더에 가려지지 않습니다. (위 `LayoutContainer`에 반영)
-    
-2. “차례대로 고정”은 결국 CSS sticky + top 계산의 문제입니다.  
-    라이브러리는 `top`을 정확히 계산해주고, 사용 프로젝트는 `position: sticky`만 적용하면 됩니다.
-    
-
----
-
-원하시면, 다음 단계로 “헤더가 translate로 숨겨질 때(유효 높이 감소)까지 반영한 `effectiveHeaderHeight`” 버전으로 확장해 드리겠습니다. 지금 제공한 구현은 **헤더 높이 변화(배너 등)** 와 **여러 sticky 스택**을 먼저 안정적으로 해결하는 최소 세트입니다.
