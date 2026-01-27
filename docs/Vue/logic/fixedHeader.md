@@ -11,7 +11,7 @@
 
 ---
 
-# A. 적용 순서(이 순서대로 하면 안전)
+#### A. 적용 순서(이 순서대로 하면 안전)
 
 1. `stores/layout.js`에 **override + scrollEl** 추가
     
@@ -27,9 +27,9 @@
 
 ---
 
-# 1) `src/stores/layout.js` (기존 store에 추가)
+#### 1) `src/stores/layout.js` (기존 store에 추가)
 
-```
+```js
 // src/stores/layout.js
 import { defineStore } from "pinia";
 import { ref } from "vue";
@@ -72,9 +72,9 @@ export const useLayoutStore = defineStore("layout", () => {
 
 ---
 
-# 2) `src/components/layout/Body.vue` (scrollEl 등록만 추가)
+#### 2) `src/components/layout/Body.vue` (scrollEl 등록만 추가)
 
-```
+```js
 <!-- src/components/layout/Body.vue -->
 <template>
   <div ref="scrollRef" class="layout-body-scroll">
@@ -108,12 +108,12 @@ onMounted(() => {
 
 ```
 
-# 3) `src/components/layout/Header.vue` (meta → override 우선으로만 변경)
+#### 3) `src/components/layout/Header.vue` (meta → override 우선으로만 변경)
 
 > **중요:** autoHide가 “클래스 내부에서 동작”한다면, 그 클래스/로직은 건드리지 않습니다.  
 > 여기서는 “헤더 고정 스타일 주입 조건”만 바꿉니다.
 
-```
+```js
 <!-- src/components/layout/Header.vue -->
 <template>
   <header
@@ -167,8 +167,8 @@ const isHeaderFixed = computed(() => {
 
 ```
 
-4) `src/composable/useHeaderPinned.js` (페이지에서 1줄로 고정 선언)
-```
+#### 4) `src/composable/useHeaderPinned.js` (페이지에서 1줄로 고정 선언)
+```js
 // src/composable/useHeaderPinned.js
 import { onMounted, onBeforeUnmount, onActivated, onDeactivated } from "vue";
 import { useLayoutStore } from "@/stores/layout";
@@ -206,13 +206,13 @@ export function useHeaderPinned(pinned = true, options = {}) {
 ```
 
 
-# 5) `src/composable/sticky/useScrollPin.js` (페이지 sticky 등록: id/order 필수)
+#### 5) `src/composable/sticky/useScrollPin.js` (페이지 sticky 등록: id/order 필수)
 
 > 최소침습이라 “레이아웃 오프셋”을 정확히 공유하기 어렵습니다.  
 > 그래서 임시로 `layout-header` 높이를 DOM에서 읽습니다(가정).  
 > **당장 동작 확인용**이며, 다음 단계에서 “기존 레이아웃이 쓰는 오프셋 변수/클래스”로 교체하면 완성도가 올라갑니다.
 
-```
+```js
 // src/composable/sticky/useScrollPin.js
 import { nextTick, onBeforeUnmount } from "vue";
 import { useLayoutStore } from "@/stores/layout";
@@ -461,7 +461,7 @@ export function useScrollPin() {
 
 ```
 6) 페이지 사용 예시 (딱 2줄로 끝)
-```
+```js
 <script setup>
 import { ref } from "vue";
 import { useHeaderPinned } from "@/composable/useHeaderPinned";
@@ -476,7 +476,7 @@ bindPin(tabsRef, { id: "tabs", order: 10 });
 </script>
 
 ```
-## 최소침습 버전에서 “바로 검증할 체크 포인트”
+#### 최소침습 버전에서 “바로 검증할 체크 포인트”
 
 1. meta가 없는 페이지(기본 autoHide)에서 **동작 그대로인지**
     
@@ -489,7 +489,7 @@ bindPin(tabsRef, { id: "tabs", order: 10 });
 
 ---
 
-## 다음 단계(필요할 때만)
+#### 다음 단계(필요할 때만)
 
 pin이 “헤더 숨김 상태”까지 정확히 따라가야 한다면, 지금 `getHeaderOffset()`의 임시 로직을  
 **기존 레이아웃이 이미 쓰는 값(예: CSS 변수, 헤더 상태 클래스, store 값)**으로 교체하면 됩니다.  
