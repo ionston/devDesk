@@ -496,7 +496,7 @@ pin이 “헤더 숨김 상태”까지 정확히 따라가야 한다면, 지금
 (이건 당신 프로젝트의 실제 클래스/변수명을 알아야 정확하게 맞춰드릴 수 있습니다.)
 
 원하면, 다음엔 **“DOM query 없이”** 가능한 3가지 대체안(기존 CSS 변수 읽기 / 헤더 상태 클래스 판독 / 기존 store 값 재사용) 중 가장 낮은 침습을 골라서 적용 코드까지 바로 제시하겠습니다.
-
+```js
 let lastOverlap = null;
 let rafId = null;
 
@@ -527,7 +527,13 @@ async function attachScrollListenerOnce() {
   lastOverlap = getHeaderOverlap(scrollEl);
   scrollEl.addEventListener("scroll", scheduleObserverRefresh, { passive: true });
 }
+```
+
+```js
 await attachScrollListenerOnce();
+```
+
+```js
 function destroy() {
   const scrollEl = layoutStore.scrollEl;
   if (scrollEl && scrollEl.__pinScrollListenerAttached) {
@@ -540,3 +546,85 @@ function destroy() {
 
   // ...기존 destroy 로직 계속
 }
+```
+
+-----------------------------------------------------------------------
+
+```js
+function getHeaderOverlap(scrollEl) {
+  const header = document.querySelector(".layout-header");
+  if (!header || !scrollEl) return 0;
+
+  const headerRect = header.getBoundingClientRect();
+  const scrollRect = scrollEl.getBoundingClientRect();
+  return Math.max(0, Math.round(headerRect.bottom - scrollRect.top));
+}
+
+function evaluatePins() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const overlap = getHeaderOverlap(scrollEl);
+  const line = scrollRect.top + overlap; // ✅ 헤더 아래 기준선(뷰포트 기준)
+
+  // order 순서대로 처리(스택 안정화)
+  const ordered = Array.from(items.values()).sort((a, b) => a.order - b.order);
+
+  for (const it of ordered) {
+    const sRect = it.sentinelEl.getBoundingClientRect();
+    const shouldPin = sRect.top < line;
+
+    if (shouldPin && !it.isPinned) pin(it.id);
+    if (!shouldPin && it.isPinned) unpin(it.id);
+  }
+}
+
+```
+
+```js
+let rafTick = null;
+
+function onScrollTick() {
+  if (rafTick) return;
+  rafTick = requestAnimationFrame(() => {
+    rafTick = null;
+    evaluatePins();
+    refreshPinnedLayout(); // 높이/스택 보정(안전)
+  });
+}
+
+```
+```js
+async function attachScrollListenerOnce() {
+  const scrollEl = await waitForScrollEl(layoutStore);
+  if (scrollEl.__pinScrollListenerAttached) return;
+  scrollEl.__pinScrollListenerAttached = true;
+
+  scrollEl.addEventListener("scroll", onScrollTick, { passive: true });
+
+  // 초기 1회 판정(로드 직후 붙는 문제도 여기서 제어 가능)
+  onScrollTick();
+}
+
+```
+
+```js
+await attachScrollListenerOnce();
+
+```
+
+```js
+function destroy() {
+  const scrollEl = layoutStore.scrollEl;
+  if (scrollEl && scrollEl.__pinScrollListenerAttached) {
+    scrollEl.removeEventListener("scroll", onScrollTick);
+    delete scrollEl.__pinScrollListenerAttached;
+  }
+  if (rafTick) cancelAnimationFrame(rafTick);
+  rafTick = null;
+
+  // 기존 destroy 로직(등록 해제/observer 정리 등) 이어서...
+}
+
+```
