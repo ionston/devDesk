@@ -682,3 +682,53 @@ function evaluatePins() {
 }
 
 ```
+
+```js
+function evaluatePins() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const overlap = getHeaderOverlap(scrollEl);
+
+  // ✅ 헤더 아래 기준선(뷰포트 기준)
+  const baseLine = scrollRect.top + overlap;
+
+  // ✅ order 순
+  const ordered = Array.from(items.values()).sort((a, b) => a.order - b.order);
+
+  // 1) 스냅샷(이번 프레임에서 변하지 않게)
+  const snap = ordered.map((it) => {
+    const sTop = it.sentinelEl.getBoundingClientRect().top;
+    const h = Math.round(it.el.getBoundingClientRect().height) || it.height || 0;
+    return { it, sTop, h };
+  });
+
+  // 2) 스택 누적 기준선으로 결정
+  let acc = 0;
+
+  // ✅ 경계 튐 방지 버퍼
+  const EPS = 3;
+
+  const decisions = [];
+  for (const s of snap) {
+    const threshold = baseLine + acc;
+
+    // sentinel이 threshold 위로 올라가면 pin
+    const shouldPin = s.sTop < threshold - EPS;
+
+    decisions.push({ it: s.it, shouldPin, h: s.h });
+
+    // ✅ "이번 프레임에서 pin될 것"만 누적
+    if (shouldPin) acc += s.h;
+  }
+
+  // 3) 적용
+  for (const d of decisions) {
+    d.it.height = d.h;
+    if (d.shouldPin && !d.it.isPinned) pin(d.it.id);
+    if (!d.shouldPin && d.it.isPinned) unpin(d.it.id);
+  }
+}
+
+```
