@@ -496,3 +496,47 @@ pin이 “헤더 숨김 상태”까지 정확히 따라가야 한다면, 지금
 (이건 당신 프로젝트의 실제 클래스/변수명을 알아야 정확하게 맞춰드릴 수 있습니다.)
 
 원하면, 다음엔 **“DOM query 없이”** 가능한 3가지 대체안(기존 CSS 변수 읽기 / 헤더 상태 클래스 판독 / 기존 store 값 재사용) 중 가장 낮은 침습을 골라서 적용 코드까지 바로 제시하겠습니다.
+
+let lastOverlap = null;
+let rafId = null;
+
+function scheduleObserverRefresh() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = null;
+    const overlap = getHeaderOverlap(scrollEl);
+
+    if (lastOverlap === null) lastOverlap = overlap;
+
+    if (Math.abs(overlap - lastOverlap) >= 1) {
+      lastOverlap = overlap;
+      rebuildObserver(); // 기존 함수
+    }
+  });
+}
+
+async function attachScrollListenerOnce() {
+  const scrollEl = await waitForScrollEl(layoutStore);
+
+  if (scrollEl.__pinScrollListenerAttached) return;
+  scrollEl.__pinScrollListenerAttached = true;
+
+  lastOverlap = getHeaderOverlap(scrollEl);
+  scrollEl.addEventListener("scroll", scheduleObserverRefresh, { passive: true });
+}
+await attachScrollListenerOnce();
+function destroy() {
+  const scrollEl = layoutStore.scrollEl;
+  if (scrollEl && scrollEl.__pinScrollListenerAttached) {
+    scrollEl.removeEventListener("scroll", scheduleObserverRefresh);
+    delete scrollEl.__pinScrollListenerAttached;
+  }
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  lastOverlap = null;
+
+  // ...기존 destroy 로직 계속
+}
