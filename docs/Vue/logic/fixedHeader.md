@@ -732,3 +732,43 @@ function evaluatePins() {
 }
 
 ```
+```js
+function refreshPinnedLayout() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  // ✅ viewport 기준으로 scrollEl의 위치
+  const scrollRect = scrollEl.getBoundingClientRect();
+
+  // ✅ scrollEl 기준으로 헤더가 덮는 높이(스크롤 컨테이너 기준)
+  const overlap = getHeaderOverlap(scrollEl);
+
+  // ✅ pin이 시작해야 하는 viewport top (헤더 아래)
+  const baseTop = Math.round(scrollRect.top + overlap);
+
+  // ✅ 현재 pin 된 것들만 order 순으로 정렬
+  const pinned = Array.from(items.values())
+    .filter((it) => it.isPinned)
+    .sort((a, b) => a.order - b.order);
+
+  // 1) 높이 스냅샷 & placeholder 반영
+  for (const it of pinned) {
+    // fixed 상태에서도 높이는 측정 가능
+    const h = Math.round(it.el.getBoundingClientRect().height) || it.height || 0;
+    it.height = h;
+
+    if (it.placeholderEl) {
+      it.placeholderEl.style.height = `${h}px`;
+    }
+  }
+
+  // 2) top 재배치 (스택 누적)
+  let acc = 0;
+  for (const it of pinned) {
+    const top = baseTop + acc;
+    it.el.style.top = `${top}px`;
+    acc += it.height;
+  }
+}
+
+```
