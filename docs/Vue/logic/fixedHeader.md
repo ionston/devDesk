@@ -628,3 +628,57 @@ function destroy() {
 }
 
 ```
+
+---
+```js
+function evaluatePins() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const overlap = getHeaderOverlap(scrollEl);
+
+  // ✅ 스택의 "첫 기준선": 헤더 아래(뷰포트 기준)
+  const baseLine = scrollRect.top + overlap;
+
+  // ✅ order 순으로 스냅샷
+  const ordered = Array.from(items.values()).sort((a, b) => a.order - b.order);
+
+  // 1) 먼저 각 item의 sentinel 위치/높이를 스냅샷으로 잡아둠
+  const snap = ordered.map((it) => {
+    const sRect = it.sentinelEl.getBoundingClientRect();
+    const h = Math.round(it.el.getBoundingClientRect().height) || it.height || 0;
+    return { it, sTop: sRect.top, h };
+  });
+
+  // 2) 스택 기준선을 누적하면서 “이번 tick에서 최종적으로 pin 되어야 하는지”를 결정
+  //    - pinned 결정된 것들의 높이를 acc로 쌓음(= 다음 아이템 기준선이 내려감)
+  let acc = 0;
+  const decisions = [];
+
+  // ✅ threshold 튐 방지용 버퍼(1~4px 정도 추천)
+  const EPS = 2;
+
+  for (const s of snap) {
+    const threshold = baseLine + acc;
+
+    // shouldPin: sentinel이 기준선보다 위로 올라갔으면 pin
+    const shouldPin = s.sTop < threshold - EPS;
+
+    decisions.push({ it: s.it, shouldPin, h: s.h });
+
+    // ✅ 다음 기준선 누적: "이번 tick에서 pin되어야 하는 것"만 누적
+    if (shouldPin) acc += s.h;
+  }
+
+  // 3) 결정 적용 (여기서 DOM 변경)
+  for (const d of decisions) {
+    // 높이 최신화(스택 계산 안정화)
+    d.it.height = d.h;
+
+    if (d.shouldPin && !d.it.isPinned) pin(d.it.id);
+    if (!d.shouldPin && d.it.isPinned) unpin(d.it.id);
+  }
+}
+
+```
