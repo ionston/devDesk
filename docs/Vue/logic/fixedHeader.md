@@ -771,4 +771,60 @@ function refreshPinnedLayout() {
   }
 }
 
+
+```
+
+```js
+function getSentinelYInScroll(scrollEl, sentinelEl) {
+  // sentinel의 "스크롤 컨텐츠 좌표" (0부터 시작)
+  const scrollRect = scrollEl.getBoundingClientRect();
+  const sRect = sentinelEl.getBoundingClientRect();
+
+  // (sentinel이 화면에서 scrollEl top에서 얼마나 떨어져 있나) + scrollTop
+  return scrollEl.scrollTop + (sRect.top - scrollRect.top);
+}
+
+function evaluatePins() {
+  const scrollEl = layoutStore.scrollEl;
+  if (!scrollEl) return;
+
+  const overlap = getHeaderOverlap(scrollEl);
+
+  // ✅ 스크롤 좌표계 기준선 시작점
+  const baseLine = scrollEl.scrollTop + overlap;
+
+  const ordered = Array.from(items.values()).sort((a, b) => a.order - b.order);
+
+  // 1) 스냅샷 (이번 프레임에서 기준 흔들림 방지)
+  const snap = ordered.map((it) => {
+    const y = getSentinelYInScroll(scrollEl, it.sentinelEl);
+    const h = Math.round(it.el.getBoundingClientRect().height) || it.height || 0;
+    return { it, y, h };
+  });
+
+  // 2) 누적 기준선(스택)으로 shouldPin 결정
+  let acc = 0;
+
+  // ✅ 경계 튐 방지 (2~6 사이로 튜닝)
+  const EPS = 4;
+
+  const decisions = [];
+  for (const s of snap) {
+    const threshold = baseLine + acc;
+    const shouldPin = s.y < threshold - EPS;
+
+    decisions.push({ it: s.it, shouldPin, h: s.h });
+
+    if (shouldPin) acc += s.h;
+  }
+
+  // 3) 적용
+  for (const d of decisions) {
+    d.it.height = d.h;
+
+    if (d.shouldPin && !d.it.isPinned) pin(d.it.id);
+    if (!d.shouldPin && d.it.isPinned) unpin(d.it.id);
+  }
+}
+
 ```
